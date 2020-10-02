@@ -6,6 +6,8 @@ mod chip8;
 mod cpu;
 mod ram;
 
+// Adding a comment to test out a theory
+
 fn main() {
     let mut file = File::open("data/INVADERS").unwrap();
     let mut data = Vec::<u8>::new();
