@@ -5,6 +5,9 @@ use std::io::Read;
 mod chip8;
 mod cpu;
 mod ram;
+mod display;
+mod keyboard;
+mod bus;
 
 fn main() {
     let mut file = File::open("data/INVADERS").unwrap();

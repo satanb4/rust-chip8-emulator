@@ -1,4 +1,4 @@
-use crate::ram::Ram;
+use crate::bus::Bus;
 use std::fmt;
 
 pub const PROGRAM_START: u16 = 0x200;
@@ -8,6 +8,7 @@ pub struct Cpu {
     pc: u16,
     i: u16,
     prev_pc: u16,
+    ret_stack: Vec<u16>
 }
 
 impl Cpu {
@@ -17,6 +18,7 @@ impl Cpu {
             pc: PROGRAM_START,
             i: 0,
             prev_pc: 0,
+            ret_stack: Vec::<u16>::new()
         }
     }
 
@@ -28,27 +30,19 @@ impl Cpu {
         self.vx[index as usize] = value;
     }
 
-    fn debug_draw_sprite(&self, ram: &mut Ram, x: u8, y: u8, height: u8) {
+    fn debug_draw_sprite(&self, bus: &Bus, x: u8, y: u8, height: u8) {
         // Draws sprite of coordinate Vx,Vy with width 8 pixels and height `n`
         println!("Drawing sprite at ({},{})", x, y);
         for y in 0..height {
-            let mut b = ram.read_byte(self.i + y as u16);
-            for _ in 0..b {
-                match (b & 0b1000_0000) >> 7 {
-                    0 => print!(" "),
-                    1 => print!("#"),
-                    _ => unreachable!(),
-                }
-                b = b << 1;
-            }
-            print!("\n");
+            let b = bus.ram_read_byte(self.i + y as u16);
+            bus.debug_draw_byte(b,x,y);
         }
         print!("\n");
     }
 
-    pub fn run_instruction(&mut self, ram: &mut Ram) {
-        let hi = ram.read_byte(self.pc) as u16;
-        let lo = ram.read_byte(self.pc + 1) as u16;
+    pub fn run_instruction(&mut self, bus: &mut Bus) {
+        let hi = bus.ram_read_byte(self.pc) as u16;
+        let lo = bus.ram_read_byte(self.pc + 1) as u16;
         let instruction = (hi << 8) | lo;
         println!(
             "Instruction read {:#x}: hi-{:#x} lo-{:#x} ",
@@ -76,6 +70,11 @@ impl Cpu {
                 // 1NNN: goto nnn
                 self.pc = nnn;
             }
+            0x2 => {
+                // 2NNN: Calls subroutine at address NNN
+                self.ret_stack.push(self.pc + 2);
+                self.pc = nnn;
+            }
             0x3 => {
                 // 3XNN: if(Vx==NN)
                 let vx = self.read_reg_vx(x);
@@ -96,10 +95,39 @@ impl Cpu {
                 self.write_reg_vx(x, vx.wrapping_add(nn));
                 self.pc += 2;
             }
+            0x8 => {
+                // 8X** : Bitop, Match etc
+                match n {
+                    0 => {
+                        // Vx = Vy
+                        let vy = self.read_reg_vx(y);
+                        self.write_reg_vx(x, vy);
+                        self.pc += 2;
+                    }
+                    _ => panic!("Unrecognized 0x8XY* instruction passed {:#x}-{:#x}",
+                    self.pc, instruction)
+                };
+            }
             0xD => {
                 // DXYN: Draws sprite
-                self.debug_draw_sprite(ram, x, y, n);
+                self.debug_draw_sprite(bus, x, y, n);
                 self.pc += 2
+            }
+            0xE => {
+                // 
+                match nn {
+                    0xA1 => {
+                        // EXA1: if(key()!=Vx) then skip next instruction
+                        let key = self.read_reg_vx(x);
+                        if bus.key_pressed(key) {
+                            self.pc += 2;
+                        } else {
+                            self.pc += 4;
+                        }
+                    }
+                    _ => panic!("Unrecognized 0xEX** instruction passed {:#x}-{:#x}",
+                    self.pc, instruction)
+                }
             }
             0xA => {
                 // ANNN: I = NNN
